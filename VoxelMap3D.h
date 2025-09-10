@@ -264,8 +264,6 @@ namespace DronePathfinding {
         // Convert point to Beidou code using BeiDouGrid3D
         std::string pointToBeidouCode(const Point3D& point) const {
             if (beidouGrid_) {
-                // Convert Point3D to appropriate coordinate format for BeiDouGrid3D
-                // This depends on your BeiDouGrid3D implementation
                 return beidouGrid_->coordinatesToBeidou(point);
             }
             return "";
@@ -282,7 +280,7 @@ namespace DronePathfinding {
         // Convert sub-grid to geographic coordinates
         Point3D subGridToGeoCoordinates(const std::string& code6, int subIdx) const {
             if (beidouGrid_) {
-                return beidouGrid_->subGridToCoordinates(code6, subIdx);
+                return beidouGrid_->subGridToGeoCoordinates(code6, subIdx);
             }
             return Point3D{0, 0, 0};
         }

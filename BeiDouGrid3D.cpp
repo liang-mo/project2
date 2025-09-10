@@ -47,6 +47,37 @@ namespace Grid {
         return beidouToCoordinates(fullCode);
     }
 
+    DronePathfinding::Point3D BeiDouGrid3D::subGridToGeoCoordinates(const std::string& code6, int subGridIndex) const {
+        if (!isValidBeidouCode(code6) || subGridIndex < 0 || subGridIndex >= 512) {
+            return DronePathfinding::Point3D{0, 0, 0};
+        }
+        
+        // Get the bounds of the 6-level grid cell
+        auto bounds = getGridBounds(code6);
+        double minLon = bounds.first.first;
+        double minLat = bounds.first.second;
+        double maxLon = bounds.second.first;
+        double maxLat = bounds.second.second;
+        
+        // Calculate grid cell size
+        double lonStep = (maxLon - minLon) / 8.0;  // 8x8x8 subdivision
+        double latStep = (maxLat - minLat) / 8.0;
+        double heightStep = 10.0;  // Assume 10m height steps, adjust as needed
+        
+        // Decode sub-grid index to 3D coordinates within the cell
+        int zIdx = subGridIndex / 64;        // Height level (0-7)
+        int yIdx = (subGridIndex % 64) / 8;  // Latitude index (0-7)
+        int xIdx = subGridIndex % 8;         // Longitude index (0-7)
+        
+        // Calculate geographic coordinates
+        double lon = minLon + (xIdx + 0.5) * lonStep;  // Center of sub-cell
+        double lat = minLat + (yIdx + 0.5) * latStep;  // Center of sub-cell
+        double height = zIdx * heightStep;             // Height level
+        
+        // Convert to Point3D (you may need to adjust the scaling)
+        return lonLatToPoint(lon, lat, height);
+    }
+    
     std::pair<std::pair<double, double>, std::pair<double, double>> 
     BeiDouGrid3D::getGridBounds(const std::string& beidouCode) const {
         if (!isValidBeidouCode(beidouCode)) {

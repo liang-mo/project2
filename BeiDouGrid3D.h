@@ -4,6 +4,7 @@ https://stackblitz.com/storage/blobs/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBCSHhyNHd
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 // Forward declaration for DronePathfinding types
 namespace DronePathfinding {
@@ -29,6 +30,9 @@ namespace Grid
         
         // Convert sub-grid to coordinates
         DronePathfinding::Point3D subGridToCoordinates(const std::string& code6, int subGridIndex) const;
+        
+        // Convert sub-grid to geographic coordinates (longitude, latitude, height)
+        DronePathfinding::Point3D subGridToGeoCoordinates(const std::string& code6, int subGridIndex) const;
         
         // Get grid bounds for a Beidou code (returns min/max lon/lat)
         std::pair<std::pair<double, double>, std::pair<double, double>> getGridBounds(const std::string& beidouCode) const;

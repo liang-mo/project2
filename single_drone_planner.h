@@ -3,51 +3,55 @@
 #include "types.h"
 #include "map3d.h"
 #include "node.h"
-#include <queue>
-#include <unordered_map>
 #include <unordered_set>
-
+#include <queue>
+#include <memory>
 
 namespace DronePathfinding {
 
-	class SingleDronePlanner {
-	private:
-		const Map3D& map_;
-		std::priority_queue<NodePtr, std::vector<NodePtr>, NodeComparator> openList_;
-		std::vector<NodePtr> closedList_;
-		std::unordered_map<Point3D, NodePtr, Point3DHash> visitedNodes_;
+    class SingleDronePlanner {
+    private:
+        const Map3D& map_;
+        std::unordered_set<SpaceTimePoint, SpaceTimePointHash> reservations_;
+        
+        // 缁熻淇℃伅
+        int nodesExplored_;
+        double planningTime_;
+        std::string lastErrorMessage_;
 
-		// 时空约束（其他无人机的占用信息）
-		std::unordered_set<SpaceTimePoint, SpaceTimePointHash> reservedSpaceTime_;
+    public:
+        explicit SingleDronePlanner(const Map3D& map);
+        ~SingleDronePlanner() = default;
 
-	public:
-		explicit SingleDronePlanner(const Map3D& map);
+        // 璺緞瑙勫垝
+        Path planPath(const DroneInfo& drone);
+        Path planPathWithConstraints(const DroneInfo& drone, 
+                                   const std::vector<Constraint>& constraints);
 
-		// 设置时空约束
-		void setReservedSpaceTime(const std::unordered_set<SpaceTimePoint, SpaceTimePointHash>& reserved);
-		void addReservedSpaceTime(const Point3D& point, int timeStep);
-		void clearReservedSpaceTime();
-		// 路径规划
-		Path planPath(const DroneInfo& drone);
+        // 棰勭害绯荤粺
+        void setReservations(const std::unordered_set<SpaceTimePoint, SpaceTimePointHash>& reservations);
+        void clearReservations();
+        void addReservation(const SpaceTimePoint& reservation);
 
-		// 安全检查
-		bool isPassable(const Point3D& point) const;
-		bool isSpaceTimeFree(const Point3D& point, int timeStep) const;
-		int calculateSafetyLevel(const Point3D& point) const;
+        // 缁熻淇℃伅
+        int getNodesExplored() const { return nodesExplored_; }
+        double getPlanningTime() const { return planningTime_; }
+        std::string getLastError() const { return lastErrorMessage_; }
 
-	private:
-		// 搜索相关
-		void searchNeighbors(NodePtr currentNode, const Point3D& target, int droneId);
-		void addNeighbor(NodePtr parent, const Point3D& point, const Point3D& target,
-			int timeStep, Direction neighborDirection, int droneId);
+    private:
+        // A*绠楁硶瀹炵幇
+        Path aStarSearch(const Point3D& start, const Point3D& goal, int droneId);
+        Path aStarSearchWithConstraints(const Point3D& start, const Point3D& goal, int droneId,
+                                      const std::vector<Constraint>& constraints);
 
-		// 工具方法
-		bool checkSafetyDistance(const Point3D& point, int safetyDistance) const;
-		double calculateStepWeight(Direction prevDir, Direction currDir) const;
-		std::vector<std::pair<Point3D, Direction>> getNeighborDirections(const Point3D& point, Direction currentDir) const;
-
-		// 清理方法
-		void reset();
-	};
+        // 杈呭姪鍑芥暟
+        std::vector<NodePtr> getNeighbors(const NodePtr& node, const Point3D& goal);
+        bool isValidMove(const Point3D& from, const Point3D& to, int timeStep, int droneId) const;
+        bool isReserved(const Point3D& point, int timeStep) const;
+        bool violatesConstraints(const Point3D& point, int timeStep, int droneId,
+                               const std::vector<Constraint>& constraints) const;
+        double calculateSafetyCost(const Point3D& point, int timeStep) const;
+        Path reconstructPath(const NodePtr& goalNode) const;
+    };
 
 } // namespace DronePathfinding

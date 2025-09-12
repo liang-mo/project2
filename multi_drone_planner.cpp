@@ -1,359 +1,233 @@
 #include "multi_drone_planner.h"
 #include "config.h"
-#include <iostream>
-#include <fstream>
 #include <algorithm>
 #include <chrono>
-#include <iomanip>
-
+#include <fstream>
+#include <iostream>
 
 namespace DronePathfinding {
 
-	MultiDronePlanner::MultiDronePlanner(const Map3D& map)
-		: map_(map), iterationCount_(0), totalNodesExplored_(0), totalPlanningTime_(0.0) {
-		singlePlanner_ = std::make_unique<SingleDronePlanner>(map);
-	}
-
-	void MultiDronePlanner::addDrone(const DroneInfo& drone) {
-		drones_.push_back(drone);
-	}
-
-	void MultiDronePlanner::clearDrones() {
-		drones_.clear();
-		reset();
-	}
-
-	bool MultiDronePlanner::planPaths() {
-		auto startTime = std::chrono::high_resolution_clock::now();
-		reset();
-
-		if (drones_.empty()) {
-			lastErrorMessage_ = "Ã»ÓĞÎŞÈË»úĞèÒª¹æ»®Â·¾¶";
-			std::cout << lastErrorMessage_ << std::endl;
-			return false;
-		}
-
-		std::cout << "¿ªÊ¼Îª " << drones_.size() << " ¼ÜÎŞÈË»ú¹æ»®Â·¾¶..." << std::endl;
-
-		sortDronesByPriority();
-
-		bool success = planWithPriorityBasedApproach();
-
-		if (!success) {
-			lastErrorMessage_ = "»ùÓÚÓÅÏÈ¼¶µÄ·½·¨Ê§°Ü£¬³¢ÊÔµü´ú·½·¨";
-			std::cout << lastErrorMessage_ << std::endl;
-			success = planWithIterativeApproach();
-		}
-
-		auto endTime = std::chrono::high_resolution_clock::now();
-		totalPlanningTime_ = std::chrono::duration<double>(endTime - startTime).count();
-
-		if (success) {
-			currentConflicts_ = ConflictDetector::detectConflicts(currentPaths_);
-			std::cout << "Â·¾¶¹æ»®Íê³É£¬·¢ÏÖ " << currentConflicts_.size() << " ¸ö³åÍ»" << std::endl;
-		}
-		else {
-			if (lastErrorMessage_.empty()) {
-				lastErrorMessage_ = "Â·¾¶¹æ»®Ê§°Ü£¬Ô­ÒòÎ´Öª";
-			}
-			std::cout << lastErrorMessage_ << std::endl;
-		}
-
-		return success;
-	}
-
-
-	//bool MultiDronePlanner::planPaths() {
-	//	auto startTime = std::chrono::high_resolution_clock::now();
-
-	//	reset();
-
-	//	if (drones_.empty()) {
-	//		std::cout << "Ã»ÓĞÎŞÈË»úĞèÒª¹æ»®Â·¾¶" << std::endl;
-	//		return false;
-	//	}
-
-	//	std::cout << "¿ªÊ¼Îª " << drones_.size() << " ¼ÜÎŞÈË»ú¹æ»®Â·¾¶..." << std::endl;
-
-	//	// °´ÓÅÏÈ¼¶ÅÅĞòÎŞÈË»ú
-	//	sortDronesByPriority();
-
-	//	bool success = false;
-
-	//	// ³¢ÊÔ»ùÓÚÓÅÏÈ¼¶µÄ·½·¨
-	//	success = planWithPriorityBasedApproach();
-
-	//	if (!success) {
-	//		std::cout << "»ùÓÚÓÅÏÈ¼¶µÄ·½·¨Ê§°Ü£¬³¢ÊÔµü´ú·½·¨..." << std::endl;
-	//		success = planWithIterativeApproach();
-	//	}
-
-	//	auto endTime = std::chrono::high_resolution_clock::now();
-	//	totalPlanningTime_ = std::chrono::duration<double>(endTime - startTime).count();
-
-	//	if (success) {
-	//		currentConflicts_ = ConflictDetector::detectConflicts(currentPaths_);
-	//		std::cout << "Â·¾¶¹æ»®Íê³É£¬·¢ÏÖ " << currentConflicts_.size() << " ¸ö³åÍ»" << std::endl;
-	//	}
-	//	else {
-	//		std::cout << "Â·¾¶¹æ»®Ê§°Ü" << std::endl;
-	//	}
-
-	//	return success;
-	//}
-
-	bool MultiDronePlanner::planWithPriorityBasedApproach() {
-		currentPaths_.clear();
-		currentPaths_.resize(drones_.size());
-
-		for (size_t i = 0; i < drones_.size(); i++) {
-			const auto& drone = drones_[i];
-			updateReservations(currentPaths_, drone.id);
-
-			auto path = singlePlanner_->planPath(drone);
-
-			if (path.empty()) {
-				lastErrorMessage_ = "ÎŞÈË»ú " + std::to_string(drone.id) + " Â·¾¶¹æ»®Ê§°Ü£¨ÓÅÏÈ¼¶·½·¨£©";
-				std::cout << lastErrorMessage_ << std::endl;
-				return false;
-			}
-
-			currentPaths_[i] = path;
-		}
-		return true;
-	}
-
-
-	//bool MultiDronePlanner::planWithPriorityBasedApproach() {
-	//	currentPaths_.clear();
-	//	currentPaths_.resize(drones_.size());
-
-	//	for (size_t i = 0; i < drones_.size(); i++) {
-	//		const auto& drone = drones_[i];
-
-	//		// Îªµ±Ç°ÎŞÈË»úÉèÖÃÆäËûÎŞÈË»úµÄÂ·¾¶×÷ÎªÔ¼Êø
-	//		updateReservations(currentPaths_, drone.id);
-
-	//		// ¹æ»®µ±Ç°ÎŞÈË»úµÄÂ·¾¶
-	//		auto path = singlePlanner_->planPath(drone);
-
-	//		if (path.empty()) {
-	//			std::cout << "ÎŞÈË»ú " << drone.id << " Â·¾¶¹æ»®Ê§°Ü" << std::endl;
-	//			return false;
-	//		}
-
-	//		currentPaths_[i] = path;
-	//		std::cout << "ÎŞÈË»ú " << drone.id << " Â·¾¶¹æ»®³É¹¦£¬Â·¾¶³¤¶È: " << path.size() << std::endl;
-	//	}
-
-	//	return true;
-	//}
-
-	bool MultiDronePlanner::planWithIterativeApproach() {
-		currentPaths_.clear();
-		currentPaths_.resize(drones_.size());
-
-		// ³õÊ¼¹æ»®£¨²»¿¼ÂÇ³åÍ»£©
-		for (size_t i = 0; i < drones_.size(); i++) {
-			singlePlanner_->clearReservedSpaceTime();
-			auto path = singlePlanner_->planPath(drones_[i]);
-			if (path.empty()) {
-				std::cout << "ÎŞÈË»ú " << drones_[i].id << " ³õÊ¼Â·¾¶¹æ»®Ê§°Ü" << std::endl;
-				return false;
-			}
-			currentPaths_[i] = path;
-		}
-
-		// µü´ú½â¾ö³åÍ»
-		for (iterationCount_ = 0; iterationCount_ < g_config.maxIterations; iterationCount_++) {
-			auto conflicts = ConflictDetector::detectConflicts(currentPaths_);
-
-			if (conflicts.empty()) {
-				std::cout << "ËùÓĞ³åÍ»ÒÑ½â¾ö£¬µü´ú´ÎÊı: " << iterationCount_ << std::endl;
-				return true;
-			}
-
-			std::cout << "µü´ú " << iterationCount_ << ": ·¢ÏÖ " << conflicts.size() << " ¸ö³åÍ»" << std::endl;
-
-			// Ñ¡ÔñµÚÒ»¸ö³åÍ»½øĞĞ½â¾ö
-			const auto& conflict = conflicts[0];
-
-			// ÖØĞÂ¹æ»®Éæ¼°³åÍ»µÄÎŞÈË»úÂ·¾¶
-			std::vector<int> conflictDrones = { conflict.droneId1, conflict.droneId2 };
-
-			for (int droneId : conflictDrones) {
-				// ÕÒµ½ÎŞÈË»úË÷Òı
-				auto it = std::find_if(drones_.begin(), drones_.end(),
-					[droneId](const DroneInfo& d) { return d.id == droneId; });
-
-				if (it != drones_.end()) {
-					size_t droneIndex = std::distance(drones_.begin(), it);
-
-					// ÉèÖÃÔ¼Êø£¨ÅÅ³ıµ±Ç°ÎŞÈË»ú£©
-					updateReservations(currentPaths_, droneId);
-
-					// ÖØĞÂ¹æ»®Â·¾¶
-					auto newPath = singlePlanner_->planPath(*it);
-
-					if (!newPath.empty()) {
-						currentPaths_[droneIndex] = newPath;
-						std::cout << "ÖØĞÂ¹æ»®ÎŞÈË»ú " << droneId << " µÄÂ·¾¶" << std::endl;
-					}
-					else {
-						std::cout << "ÎŞÈË»ú " << droneId << " ÖØĞÂ¹æ»®Ê§°Ü" << std::endl;
-					}
-				}
-			}
-		}
-
-		std::cout << "´ïµ½×î´óµü´ú´ÎÊı£¬ÈÔÓĞ³åÍ»´æÔÚ" << std::endl;
-		return false;
-	}
-
-	void MultiDronePlanner::updateReservations(const Paths& paths, int excludeDroneId) {
-		auto reservations = pathsToSpaceTimeReservations(paths, excludeDroneId);
-		singlePlanner_->setReservedSpaceTime(reservations);
-	}
-
-	std::unordered_set<SpaceTimePoint, SpaceTimePointHash>
-		MultiDronePlanner::pathsToSpaceTimeReservations(const Paths& paths, int excludeDroneId) const {
-		std::unordered_set<SpaceTimePoint, SpaceTimePointHash> reservations;
-
-		for (size_t i = 0; i < paths.size(); i++) {
-			if (i < drones_.size() && drones_[i].id == excludeDroneId) {
-				continue;
-			}
-
-			const auto& path = paths[i];
-			for (size_t t = 0; t < path.size(); t++) {
-				reservations.emplace(path[t]->point, static_cast<int>(t));
-			}
-		}
-
-		return reservations;
-	}
-
-	void MultiDronePlanner::sortDronesByPriority() {
-		std::sort(drones_.begin(), drones_.end(),
-			[](const DroneInfo& a, const DroneInfo& b) {
-				return a.priority > b.priority;
-			});
-	}
-
-	bool MultiDronePlanner::validatePaths(const Paths& paths) const {
-		// ¼ì²éÃ¿ÌõÂ·¾¶µÄÓĞĞ§ĞÔ
-		for (size_t i = 0; i < paths.size(); i++) {
-			const auto& path = paths[i];
-			if (path.empty()) {
-				return false;
-			}
-
-			// ¼ì²éÆğµãºÍÖÕµã
-			if (i < drones_.size()) {
-				if (path.front()->point != drones_[i].startPoint ||
-					path.back()->point != drones_[i].endPoint) {
-					return false;
-				}
-			}
-		}
-
-		return true;
-	}
-
-	void MultiDronePlanner::savePathsToJson(const std::string& filename) const {
-		nlohmann::json output;
-		output["paths"] = nlohmann::json::array();
-
-		for (size_t i = 0; i < currentPaths_.size(); i++) {
-			nlohmann::json pathJson;
-			pathJson["drone_id"] = (i < drones_.size()) ? drones_[i].id : static_cast<int>(i);
-			pathJson["points"] = nlohmann::json::array();
-
-			for (const auto& node : currentPaths_[i]) {
-				nlohmann::json pointJson;
-
-				// ³¢ÊÔ»ñÈ¡Ô­Ê¼×ø±ê
-				if (map_.hasCoordMapping(node->point.z, node->point.x, node->point.y)) {
-					auto coord = map_.getOriginalCoord(node->point.z, node->point.x, node->point.y);
-					double origX = std::get<0>(coord);
-					double origY = std::get<1>(coord);
-					double origZ = std::get<2>(coord);
-					pointJson["X"] = origX;
-					pointJson["Y"] = origY;
-					pointJson["Z"] = origZ;
-				}
-				else {
-					pointJson["X"] = node->point.x;
-					pointJson["Y"] = node->point.y;
-					pointJson["Z"] = node->point.z;
-				}
-
-				pointJson["time_step"] = node->timeStep;
-				pointJson["Attribute"] = 2;  // Â·¾¶±ê¼Ç
-
-				pathJson["points"].push_back(pointJson);
-			}
-
-			output["paths"].push_back(pathJson);
-		}
-
-		// Ìí¼ÓÍ³¼ÆĞÅÏ¢
-		output["statistics"] = {
-			{"total_drones", drones_.size()},
-			{"total_conflicts", currentConflicts_.size()},
-			{"iteration_count", iterationCount_},
-			{"planning_time", totalPlanningTime_}
-		};
-
-		std::ofstream file(filename);
-		file << std::setw(4) << output << std::endl;
-
-		std::cout << "Â·¾¶Êı¾İÒÑ±£´æµ½ " << filename << std::endl;
-	}
-
-	void MultiDronePlanner::printStatistics() const {
-		std::cout << "\n=== ¶àÎŞÈË»úÂ·¾¶¹æ»®Í³¼Æ ===" << std::endl;
-		std::cout << "ÎŞÈË»úÊıÁ¿: " << drones_.size() << std::endl;
-		std::cout << "³É¹¦¹æ»®Â·¾¶Êı: " << currentPaths_.size() << std::endl;
-		std::cout << "×Ü³åÍ»Êı: " << currentConflicts_.size() << std::endl;
-		std::cout << "µü´ú´ÎÊı: " << iterationCount_ << std::endl;
-		std::cout << "×Ü¹æ»®Ê±¼ä: " << totalPlanningTime_ << " Ãë" << std::endl;
-
-		// ´òÓ¡Ã¿¼ÜÎŞÈË»úµÄÂ·¾¶³¤¶È
-		for (size_t i = 0; i < currentPaths_.size() && i < drones_.size(); i++) {
-			std::cout << "ÎŞÈË»ú " << drones_[i].id << " Â·¾¶³¤¶È: " << currentPaths_[i].size() << std::endl;
-		}
-
-		// ´òÓ¡³åÍ»ÏêÇé
-		if (!currentConflicts_.empty()) {
-			std::cout << "\n³åÍ»ÏêÇé:" << std::endl;
-			for (const auto& conflict : currentConflicts_) {
-				std::cout << "  Ê±¼ä " << conflict.timeStep << ": ÎŞÈË»ú "
-					<< conflict.droneId1 << " Óë " << conflict.droneId2;
-				switch (conflict.type) {
-				case ConflictType::VERTEX:
-					std::cout << " ¶¥µã³åÍ»";
-					break;
-				case ConflictType::EDGE:
-					std::cout << " ±ß³åÍ»";
-					break;
-				case ConflictType::FOLLOWING:
-					std::cout << " ¸úËæ³åÍ»";
-					break;
-				default:
-					std::cout << " Î´Öª³åÍ»";
-				}
-				std::cout << std::endl;
-			}
-		}
-	}
-
-	void MultiDronePlanner::reset() {
-		currentPaths_.clear();
-		currentConflicts_.clear();
-		iterationCount_ = 0;
-		totalNodesExplored_ = 0;
-		totalPlanningTime_ = 0.0;
-	}
+    MultiDronePlanner::MultiDronePlanner(const Map3D& map) 
+        : map_(map), iterationCount_(0), totalNodesExplored_(0), totalPlanningTime_(0.0) {
+        singlePlanner_ = std::make_unique<SingleDronePlanner>(map);
+    }
+
+    void MultiDronePlanner::addDrone(const DroneInfo& drone) {
+        drones_.push_back(drone);
+    }
+
+    void MultiDronePlanner::clearDrones() {
+        drones_.clear();
+        reset();
+    }
+
+    bool MultiDronePlanner::planPaths() {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        
+        reset();
+        
+        if (drones_.empty()) {
+            lastErrorMessage_ = "No drones to plan for";
+            return false;
+        }
+        
+        // æŒ‰ä¼˜å…ˆçº§æ’åºæ— äººæœº
+        sortDronesByPriority();
+        
+        // ä½¿ç”¨åŸºäºä¼˜å…ˆçº§çš„æ–¹æ³•è¿›è¡Œè§„åˆ’
+        bool success = planWithPriorityBasedApproach();
+        
+        if (!success) {
+            // å¦‚æœä¼˜å…ˆçº§æ–¹æ³•å¤±è´¥ï¼Œå°è¯•è¿­ä»£æ–¹æ³•
+            success = planWithIterativeApproach();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        totalPlanningTime_ = std::chrono::duration<double>(endTime - startTime).count();
+        
+        // æ£€æµ‹æœ€ç»ˆå†²çª
+        currentConflicts_ = ConflictDetector::detectConflicts(currentPaths_);
+        
+        if (g_config.enableDebugOutput) {
+            printStatistics();
+        }
+        
+        return success && currentConflicts_.empty();
+    }
+
+    void MultiDronePlanner::savePathsToJson(const std::string& filename) const {
+        nlohmann::json output = getPathsAsJson();
+        
+        std::ofstream file(filename);
+        if (file.is_open()) {
+            file << output.dump(4);
+            file.close();
+            std::cout << "Paths saved to " << filename << std::endl;
+        } else {
+            std::cerr << "Failed to save paths to " << filename << std::endl;
+        }
+    }
+
+    void MultiDronePlanner::printStatistics() const {
+        std::cout << "\n=== Multi-Drone Planning Statistics ===" << std::endl;
+        std::cout << "Total drones: " << drones_.size() << std::endl;
+        std::cout << "Successful paths: " << currentPaths_.size() << std::endl;
+        std::cout << "Total conflicts: " << currentConflicts_.size() << std::endl;
+        std::cout << "Iterations: " << iterationCount_ << std::endl;
+        std::cout << "Nodes explored: " << totalNodesExplored_ << std::endl;
+        std::cout << "Planning time: " << totalPlanningTime_ << " seconds" << std::endl;
+        
+        if (!currentConflicts_.empty()) {
+            std::cout << "\nConflicts detected:" << std::endl;
+            for (size_t i = 0; i < std::min(currentConflicts_.size(), size_t(5)); i++) {
+                const auto& conflict = currentConflicts_[i];
+                std::cout << "  Conflict " << i+1 << ": Drone " << conflict.drone1Id 
+                         << " vs Drone " << conflict.drone2Id 
+                         << " at time " << conflict.timeStep << std::endl;
+            }
+            if (currentConflicts_.size() > 5) {
+                std::cout << "  ... and " << (currentConflicts_.size() - 5) << " more conflicts" << std::endl;
+            }
+        }
+    }
+
+    bool MultiDronePlanner::planWithPriorityBasedApproach() {
+        currentPaths_.clear();
+        currentPaths_.resize(drones_.size());
+        
+        for (size_t i = 0; i < drones_.size(); i++) {
+            iterationCount_++;
+            
+            // ä¸ºå½“å‰æ— äººæœºè§„åˆ’è·¯å¾„ï¼Œè€ƒè™‘ä¹‹å‰è§„åˆ’çš„è·¯å¾„ä½œä¸ºé¢„çº¦
+            updateReservations(currentPaths_, static_cast<int>(i));
+            
+            Path path = singlePlanner_->planPath(drones_[i]);
+            totalNodesExplored_ += singlePlanner_->getNodesExplored();
+            
+            if (path.empty()) {
+                lastErrorMessage_ = "Failed to find path for drone " + std::to_string(drones_[i].id);
+                return false;
+            }
+            
+            currentPaths_[i] = path;
+            
+            if (g_config.enableDebugOutput) {
+                std::cout << "Planned path for drone " << drones_[i].id 
+                         << " with " << path.size() << " waypoints" << std::endl;
+            }
+        }
+        
+        return true;
+    }
+
+    bool MultiDronePlanner::planWithIterativeApproach() {
+        const int maxIterations = 10;
+        
+        for (int iter = 0; iter < maxIterations; iter++) {
+            iterationCount_++;
+            
+            // æ£€æµ‹å½“å‰å†²çª
+            auto conflicts = ConflictDetector::detectConflicts(currentPaths_);
+            
+            if (conflicts.empty()) {
+                return true; // æ²¡æœ‰å†²çªï¼ŒæˆåŠŸ
+            }
+            
+            // é€‰æ‹©ç¬¬ä¸€ä¸ªå†²çªè¿›è¡Œè§£å†³
+            const auto& conflict = conflicts[0];
+            
+            // é‡æ–°è§„åˆ’æ¶‰åŠå†²çªçš„æ— äººæœºè·¯å¾„
+            std::vector<int> dronesInConflict = {conflict.drone1Id, conflict.drone2Id};
+            
+            for (int droneId : dronesInConflict) {
+                // æ‰¾åˆ°æ— äººæœºç´¢å¼•
+                auto it = std::find_if(drones_.begin(), drones_.end(),
+                    [droneId](const DroneInfo& drone) { return drone.id == droneId; });
+                
+                if (it != drones_.end()) {
+                    size_t droneIndex = std::distance(drones_.begin(), it);
+                    
+                    // æ›´æ–°é¢„çº¦ï¼ˆæ’é™¤å½“å‰æ— äººæœºï¼‰
+                    updateReservations(currentPaths_, droneId);
+                    
+                    // é‡æ–°è§„åˆ’è·¯å¾„
+                    Path newPath = singlePlanner_->planPath(*it);
+                    totalNodesExplored_ += singlePlanner_->getNodesExplored();
+                    
+                    if (!newPath.empty()) {
+                        currentPaths_[droneIndex] = newPath;
+                    }
+                }
+            }
+        }
+        
+        lastErrorMessage_ = "Failed to resolve all conflicts within iteration limit";
+        return false;
+    }
+
+    void MultiDronePlanner::updateReservations(const Paths& paths, int excludeDroneId) {
+        auto reservations = pathsToSpaceTimeReservations(paths, excludeDroneId);
+        singlePlanner_->setReservations(reservations);
+    }
+
+    void MultiDronePlanner::sortDronesByPriority() {
+        std::sort(drones_.begin(), drones_.end(),
+            [](const DroneInfo& a, const DroneInfo& b) {
+                return a.priority < b.priority; // è¾ƒå°çš„æ•°å­—è¡¨ç¤ºè¾ƒé«˜çš„ä¼˜å…ˆçº§
+            });
+    }
+
+    std::unordered_set<SpaceTimePoint, SpaceTimePointHash>
+    MultiDronePlanner::pathsToSpaceTimeReservations(const Paths& paths, int excludeDroneId) const {
+        std::unordered_set<SpaceTimePoint, SpaceTimePointHash> reservations;
+        
+        for (size_t i = 0; i < paths.size(); i++) {
+            if (i < drones_.size() && drones_[i].id == excludeDroneId) {
+                continue; // è·³è¿‡è¢«æ’é™¤çš„æ— äººæœº
+            }
+            
+            const auto& path = paths[i];
+            for (const auto& node : path) {
+                if (node) {
+                    reservations.emplace(node->point, node->timeStep);
+                }
+            }
+        }
+        
+        return reservations;
+    }
+
+    bool MultiDronePlanner::validatePaths(const Paths& paths) const {
+        // æ£€æŸ¥æ¯æ¡è·¯å¾„æ˜¯å¦æœ‰æ•ˆ
+        for (size_t i = 0; i < paths.size(); i++) {
+            if (paths[i].empty()) {
+                return false;
+            }
+            
+            // æ£€æŸ¥èµ·ç‚¹å’Œç»ˆç‚¹
+            if (i < drones_.size()) {
+                const auto& drone = drones_[i];
+                if (paths[i].front()->point != drone.start || 
+                    paths[i].back()->point != drone.goal) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+
+    void MultiDronePlanner::reset() {
+        currentPaths_.clear();
+        currentConflicts_.clear();
+        iterationCount_ = 0;
+        totalNodesExplored_ = 0;
+        totalPlanningTime_ = 0.0;
+        lastErrorMessage_.clear();
+        
+        if (singlePlanner_) {
+            singlePlanner_->clearReservations();
+        }
+    }
 
 } // namespace DronePathfinding

@@ -1,39 +1,40 @@
 #pragma once
 
+#include "types.h"
 
 namespace DronePathfinding {
 
-	// Ëã·¨ÅäÖÃ²ÎÊı
-	struct AlgorithmConfig {
-		// A*Ëã·¨È¨ÖØ
-		double weightG = 1.0;           // gÖµÈ¨ÖØ
-		double weightH = 1.0;           // hÖµÈ¨ÖØ
-		double weightSafety = 50;      // °²È«¾àÀë³Í·£È¨ÖØ
+    // å…¨å±€é…ç½®ç»“æ„
+    struct GlobalConfig {
+        // A*ç®—æ³•å‚æ•°
+        double weightH = 1.0;           // å¯å‘å¼æƒé‡
+        double weightG = 1.0;           // å®é™…ä»£ä»·æƒé‡
+        double weightSafety = 0.5;      // å®‰å…¨ä»£ä»·æƒé‡
+        
+        // æœç´¢å‚æ•°
+        int maxIterations = 10000;      // æœ€å¤§è¿­ä»£æ¬¡æ•°
+        int maxNodesExplored = 50000;   // æœ€å¤§æ¢ç´¢èŠ‚ç‚¹æ•°
+        double timeLimit = 30.0;        // æ—¶é—´é™åˆ¶(ç§’)
+        
+        // å†²çªæ£€æµ‹å‚æ•°
+        double safetyDistance = 2.0;    // å®‰å…¨è·ç¦»
+        double followingDistance = 3.0; // è·Ÿéšè·ç¦»
+        
+        // è·¯å¾„å¹³æ»‘å‚æ•°
+        bool enablePathSmoothing = true;
+        int smoothingIterations = 3;
+        
+        // è°ƒè¯•å‚æ•°
+        bool enableDebugOutput = false;
+        bool saveIntermediateResults = false;
+    };
 
-		// ÒÆ¶¯È¨ÖØ
-		double weightStraight = 1;    // Ö±·É
-		double weightVertical = 1.0;    // ÉÏÏÂ·É
-		double weightHorizontal = 1.0;  // ×óÓÒ·É
-		double weightDiagonal = 1.5;    // Ğ±ÉÏÏÂ·É
+    // å…¨å±€é…ç½®å®ä¾‹
+    extern GlobalConfig g_config;
 
-		// °²È«¾àÀë²ÎÊı
-		int preferredSafetyDistance = 5;  // Ê×Ñ¡°²È«¾àÀë
-		int minSafetyDistance = 1;        // ×îĞ¡°²È«¾àÀë
-
-		// ¶àÎŞÈË»ú²ÎÊı
-		int maxIterations = 900;         // ×î´óµü´ú´ÎÊı
-		double conflictWeight = 10.0;     // ³åÍ»³Í·£È¨ÖØ
-		int timeHorizon = 100;            // Ê±¼ä´°¿Ú
-
-		// ĞÔÄÜ²ÎÊı
-		int maxNodesExplored = 100000;    // ×î´óÌ½Ë÷½ÚµãÊı
-		double timeLimit = 30.0;          // Ê±¼äÏŞÖÆ£¨Ãë£©
-
-		// µØÍ¼²ÎÊı
-		int passableTag = 0;              // ¿ÉÍ¨ĞĞ±ê¼Ç
-	};
-
-	// È«¾ÖÅäÖÃÊµÀı
-	extern AlgorithmConfig g_config;
+    // é…ç½®ç®¡ç†å‡½æ•°
+    void initializeConfig();
+    void setConfigFromJson(const std::string& jsonStr);
+    std::string getConfigAsJson();
 
 } // namespace DronePathfinding

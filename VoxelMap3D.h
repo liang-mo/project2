@@ -253,7 +253,7 @@ namespace DronePathfinding {
             for (int subIdx = 0; subIdx < 512; subIdx++) {
                 if (states[subIdx]) {
                     // Generate full 9-level Beidou code for this sub-grid
-                    std::string fullCode = generateFullBeidouCode(code6, subIdx);
+                    std::string fullCode = beidouGrid_->expandToFullCode(code6, subIdx);
                     if (!fullCode.empty()) {
                         obstacleVoxels_.insert(fullCode);
                     }
@@ -265,14 +265,6 @@ namespace DronePathfinding {
         std::string pointToBeidouCode(const Point3D& point) const {
             if (beidouGrid_) {
                 return beidouGrid_->coordinatesToBeidou(point);
-            }
-            return "";
-        }
-
-        // Generate full 9-level Beidou code from 6-level code and sub-grid index
-        std::string generateFullBeidouCode(const std::string& code6, int subIdx) const {
-            if (beidouGrid_) {
-                return beidouGrid_->expandToFullCode(code6, subIdx);
             }
             return "";
         }

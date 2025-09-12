@@ -1,31 +1,33 @@
 #pragma once
 
 #include "types.h"
+#include "node.h"
 #include <vector>
-
 
 namespace DronePathfinding {
 
-	class ConflictDetector {
-	public:
-		// ¼ì²âËùÓĞÂ·¾¶Ö®¼äµÄ³åÍ»
-		static std::vector<Conflict> detectConflicts(const Paths& paths);
-
-		// ¼ì²âÁ½ÌõÂ·¾¶Ö®¼äµÄ³åÍ»
-		static std::vector<Conflict> detectConflictsBetweenPaths(const Path& path1, const Path& path2);
-
-		// ¼ì²âÌØ¶¨ÀàĞÍµÄ³åÍ»
-		static std::vector<Conflict> detectVertexConflicts(const Paths& paths);
-		static std::vector<Conflict> detectEdgeConflicts(const Paths& paths);
-		static std::vector<Conflict> detectFollowingConflicts(const Paths& paths);
-
-	private:
-		// ¸¨Öú·½·¨
-		static bool isVertexConflict(const NodePtr& node1, const NodePtr& node2);
-		static bool isEdgeConflict(const NodePtr& node1a, const NodePtr& node1b,
-			const NodePtr& node2a, const NodePtr& node2b);
-		static bool isFollowingConflict(const NodePtr& node1, const NodePtr& node2, double minDistance);
-		static double calculateDistance(const Point3D& p1, const Point3D& p2);
-	};
+    class ConflictDetector {
+    public:
+        // æ£€æµ‹æ‰€æœ‰è·¯å¾„ä¹‹é—´çš„å†²çª
+        static std::vector<Conflict> detectConflicts(const Paths& paths);
+        
+        // æ£€æµ‹ä¸¤æ¡è·¯å¾„ä¹‹é—´çš„å†²çª
+        static std::vector<Conflict> detectConflictsBetweenPaths(const Path& path1, const Path& path2);
+        
+        // æ£€æµ‹ç‰¹å®šç±»å‹çš„å†²çª
+        static std::vector<Conflict> detectVertexConflicts(const Paths& paths);
+        static std::vector<Conflict> detectEdgeConflicts(const Paths& paths);
+        static std::vector<Conflict> detectFollowingConflicts(const Paths& paths);
+        
+    private:
+        // å†²çªæ£€æµ‹è¾…åŠ©å‡½æ•°
+        static bool isVertexConflict(const NodePtr& node1, const NodePtr& node2);
+        static bool isEdgeConflict(const NodePtr& node1a, const NodePtr& node1b,
+                                 const NodePtr& node2a, const NodePtr& node2b);
+        static bool isFollowingConflict(const NodePtr& node1, const NodePtr& node2, double minDistance);
+        
+        // å·¥å…·å‡½æ•°
+        static double calculateDistance(const Point3D& p1, const Point3D& p2);
+    };
 
 } // namespace DronePathfinding

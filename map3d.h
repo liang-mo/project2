@@ -1,52 +1,51 @@
 #pragma once
 
 #include "types.h"
-#include <vector>
-#include <string>
-#include <nlohmann/json.hpp>
-#include <libpq-fe.h>
-
+#include "VoxelMap3D.h"
+#include <memory>
+#include <unordered_map>
+#include <tuple>
 
 namespace DronePathfinding {
 
-	class Map3D {
-	private:
-		int height_, width_, length_;  // Z, X, Y Î¬¶È
-		std::vector<std::vector<std::vector<int>>> data_;
-		std::unordered_map<std::tuple<int, int, int>, std::tuple<double, double, double>, TupleHash> coordMap_;
-		std::vector<double> xList_, yList_, zList_;
+    class Map3D {
+    private:
+        std::unique_ptr<VoxelMap3D> voxelMap_;
+        std::unordered_map<std::string, std::tuple<double, double, double>> coordMapping_;
+        Point3D mapBounds_;
+        Point3D mapOrigin_;
 
-	public:
-		Map3D(int height, int width, int length);
+    public:
+        Map3D();
+        ~Map3D() = default;
 
-		// »ù´¡·ÃÎÊ·½·¨
-		bool isValidIndex(int z, int x, int y) const;
-		int& operator()(int z, int x, int y);
-		const int& operator()(int z, int x, int y) const;
+        // ä»æ•°æ®åº“åŠ è½½
+        bool loadFromDatabase(PGconn* conn, const std::string& query);
 
-		// Î¬¶È·ÃÎÊ
-		int getHeight() const { return height_; }
-		int getWidth() const { return width_; }
-		int getLength() const { return length_; }
+        // éšœç¢ç‰©æ£€æµ‹
+        bool isObstacle(const Point3D& point) const;
+        bool isObstacle(int x, int y, int z) const;
 
-		// ×ø±ê×ª»»
-		bool hasCoordMapping(int z, int x, int y) const;
-		std::tuple<double, double, double> getOriginalCoord(int z, int x, int y) const;
+        // è·å–éšœç¢ç‰©
+        std::vector<Point3D> getObstaclesInRegion(const Point3D& minPoint, const Point3D& maxPoint) const;
 
-		// ´ÓJSON¼ÓÔØµØÍ¼
-		static std::unique_ptr<Map3D> loadFromJson(const std::string& jsonFile, int precision = 8);
-		// ´ÓPostgres¼ÓÔØµØÍ¼
-		static std::unique_ptr<Map3D> loadFromPostgres(PGresult* res, int precision = 8);
-		static std::unique_ptr<Map3D> loadFromPostgresfix(PGresult* res, int precision = 8);
+        // åæ ‡æ˜ å°„
+        bool hasCoordMapping(int z, int x, int y) const;
+        std::tuple<double, double, double> getOriginalCoord(int z, int x, int y) const;
+        void addCoordMapping(int z, int x, int y, double origX, double origY, double origZ);
 
-		std::tuple<int, int, int> getIndexFromCoordinate(double x, double y, double z, int precision = 6) const;
+        // åœ°å›¾è¾¹ç•Œ
+        Point3D getMapBounds() const { return mapBounds_; }
+        Point3D getMapOrigin() const { return mapOrigin_; }
+        void setMapBounds(const Point3D& bounds) { mapBounds_ = bounds; }
+        void setMapOrigin(const Point3D& origin) { mapOrigin_ = origin; }
 
-		// µØÍ¼·ÖÎö
-		void printStatistics() const;
-		std::vector<Point3D> getObstacles() const;
+        // ç»Ÿè®¡ä¿¡æ¯
+        void printStatistics() const;
+        size_t getTotalObstacles() const;
 
-	private:
-		void setCoordMapping(int z, int x, int y, double origX, double origY, double origZ);
-	};
+        // æ¸…ç†
+        void clear();
+    };
 
 } // namespace DronePathfinding

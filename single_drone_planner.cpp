@@ -1,352 +1,217 @@
 #include "single_drone_planner.h"
 #include "config.h"
-#include <iostream>
 #include <algorithm>
-
+#include <chrono>
+#include <iostream>
 
 namespace DronePathfinding {
 
-	SingleDronePlanner::SingleDronePlanner(const Map3D& map) : map_(map) {}
+    SingleDronePlanner::SingleDronePlanner(const Map3D& map) 
+        : map_(map), nodesExplored_(0), planningTime_(0.0) {
+    }
 
-	void SingleDronePlanner::setReservedSpaceTime(const std::unordered_set<SpaceTimePoint, SpaceTimePointHash>& reserved) {
-		reservedSpaceTime_ = reserved;
-	}
+    Path SingleDronePlanner::planPath(const DroneInfo& drone) {
+        std::vector<Constraint> emptyConstraints;
+        return planPathWithConstraints(drone, emptyConstraints);
+    }
 
-	void SingleDronePlanner::addReservedSpaceTime(const Point3D& point, int timeStep) {
-		reservedSpaceTime_.emplace(point, timeStep);
-	}
+    Path SingleDronePlanner::planPathWithConstraints(const DroneInfo& drone, 
+                                                    const std::vector<Constraint>& constraints) {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        nodesExplored_ = 0;
+        lastErrorMessage_.clear();
 
-	void SingleDronePlanner::clearReservedSpaceTime() {
-		reservedSpaceTime_.clear();
-	}
+        Path path = aStarSearchWithConstraints(drone.start, drone.goal, drone.id, constraints);
 
+        auto endTime = std::chrono::high_resolution_clock::now();
+        planningTime_ = std::chrono::duration<double>(endTime - startTime).count();
 
+        return path;
+    }
 
-	Path SingleDronePlanner::planPath(const DroneInfo& drone) {
-		reset();
+    void SingleDronePlanner::setReservations(const std::unordered_set<SpaceTimePoint, SpaceTimePointHash>& reservations) {
+        reservations_ = reservations;
+    }
 
-		// ºÏ≤È∆µ„∫Õ÷’µ„µƒ”––ß–‘
-		if (!isPassable(drone.startPoint)) {
-			std::cout << "æØ∏Ê£∫Œﬁ»Àª˙ " << drone.id << " ∆µ„≤ªø…Õ®––" << std::endl;
-		}
+    void SingleDronePlanner::clearReservations() {
+        reservations_.clear();
+    }
 
-		if (!isPassable(drone.endPoint)) {
-			std::cout << "æØ∏Ê£∫Œﬁ»Àª˙ " << drone.id << " ÷’µ„≤ªø…Õ®––" << std::endl;
-		}
+    void SingleDronePlanner::addReservation(const SpaceTimePoint& reservation) {
+        reservations_.insert(reservation);
+    }
 
-		// ¥¥Ω®∆ ºΩ⁄µ„
-		int startSafetyLevel = calculateSafetyLevel(drone.startPoint);
-		auto startNode = std::make_shared<Node>(drone.startPoint, drone.endPoint, drone.id, 0,
-			0.0, Direction::ORIGIN, startSafetyLevel * g_config.weightSafety);
+    Path SingleDronePlanner::aStarSearch(const Point3D& start, const Point3D& goal, int droneId) {
+        std::vector<Constraint> emptyConstraints;
+        return aStarSearchWithConstraints(start, goal, droneId, emptyConstraints);
+    }
 
-		openList_.push(startNode);
-		visitedNodes_[drone.startPoint] = startNode;
+    Path SingleDronePlanner::aStarSearchWithConstraints(const Point3D& start, const Point3D& goal, int droneId,
+                                                       const std::vector<Constraint>& constraints) {
+        // ‰ºòÂÖàÈòüÂàóÔºöÊúÄÂ∞èÂ†Ü
+        auto compare = [](const NodePtr& a, const NodePtr& b) {
+            return a->getFCost() > b->getFCost();
+        };
+        std::priority_queue<NodePtr, std::vector<NodePtr>, decltype(compare)> openSet(compare);
+        
+        std::unordered_set<std::string> closedSet;
+        
+        // ÂàõÂª∫Ëµ∑ÂßãËäÇÁÇπ
+        auto startNode = std::make_shared<Node>(start, goal, droneId, 0);
+        openSet.push(startNode);
+        
+        nodesExplored_ = 0;
+        
+        while (!openSet.empty() && nodesExplored_ < g_config.maxNodesExplored) {
+            auto current = openSet.top();
+            openSet.pop();
+            nodesExplored_++;
+            
+            // ÁîüÊàêËäÇÁÇπÁöÑÂîØ‰∏ÄÊ†áËØÜ
+            std::string nodeKey = std::to_string(current->point.x) + "_" + 
+                                std::to_string(current->point.y) + "_" + 
+                                std::to_string(current->point.z) + "_" + 
+                                std::to_string(current->timeStep);
+            
+            if (closedSet.find(nodeKey) != closedSet.end()) {
+                continue;
+            }
+            closedSet.insert(nodeKey);
+            
+            // Ê£ÄÊü•ÊòØÂê¶Âà∞ËææÁõÆÊ†á
+            if (current->point == goal) {
+                return reconstructPath(current);
+            }
+            
+            // Ëé∑ÂèñÈÇªÂ±ÖËäÇÁÇπ
+            auto neighbors = getNeighbors(current, goal);
+            
+            for (auto& neighbor : neighbors) {
+                std::string neighborKey = std::to_string(neighbor->point.x) + "_" + 
+                                        std::to_string(neighbor->point.y) + "_" + 
+                                        std::to_string(neighbor->point.z) + "_" + 
+                                        std::to_string(neighbor->timeStep);
+                
+                if (closedSet.find(neighborKey) != closedSet.end()) {
+                    continue;
+                }
+                
+                // Ê£ÄÊü•Á∫¶Êùü
+                if (violatesConstraints(neighbor->point, neighbor->timeStep, droneId, constraints)) {
+                    continue;
+                }
+                
+                // Ê£ÄÊü•È¢ÑÁ∫¶
+                if (isReserved(neighbor->point, neighbor->timeStep)) {
+                    continue;
+                }
+                
+                neighbor->parent = current;
+                openSet.push(neighbor);
+            }
+        }
+        
+        lastErrorMessage_ = "No path found";
+        return Path();
+    }
 
-		int nodesExplored = 0;
+    std::vector<NodePtr> SingleDronePlanner::getNeighbors(const NodePtr& node, const Point3D& goal) {
+        std::vector<NodePtr> neighbors;
+        auto directions = getMovementDirections(true, true);
+        
+        for (const auto& dir : directions) {
+            Point3D newPoint = node->point + dir;
+            
+            // Ê£ÄÊü•ËæπÁïå
+            if (newPoint.x < 0 || newPoint.y < 0 || newPoint.z < 0) {
+                continue;
+            }
+            
+            // Ê£ÄÊü•ÊòØÂê¶ÊòØÈöúÁ¢çÁâ©
+            if (map_.isObstacle(newPoint)) {
+                continue;
+            }
+            
+            // Ê£ÄÊü•ÁßªÂä®ÊòØÂê¶ÊúâÊïà
+            if (!isValidMove(node->point, newPoint, node->timeStep + 1, node->droneId)) {
+                continue;
+            }
+            
+            // ËÆ°ÁÆó‰ª£‰ª∑
+            double moveCost = calculateMovementCost(node->point, newPoint);
+            double gCost = node->gCost + moveCost;
+            double safetyCost = calculateSafetyCost(newPoint, node->timeStep + 1);
+            
+            auto neighbor = std::make_shared<Node>(newPoint, goal, node->droneId, 
+                                                 node->timeStep + 1, gCost, Direction::NONE, safetyCost);
+            neighbors.push_back(neighbor);
+        }
+        
+        // Ê∑ªÂä†Á≠âÂæÖÂä®‰ΩúÔºàÂÅúÁïôÂú®ÂéüÂú∞Ôºâ
+        if (!isReserved(node->point, node->timeStep + 1)) {
+            double safetyCost = calculateSafetyCost(node->point, node->timeStep + 1);
+            auto waitNode = std::make_shared<Node>(node->point, goal, node->droneId, 
+                                                 node->timeStep + 1, node->gCost + 1.0, Direction::NONE, safetyCost);
+            neighbors.push_back(waitNode);
+        }
+        
+        return neighbors;
+    }
 
-		while (!openList_.empty() && nodesExplored < g_config.maxNodesExplored) {
-			auto currentNode = openList_.top();
-			openList_.pop();
+    bool SingleDronePlanner::isValidMove(const Point3D& from, const Point3D& to, int timeStep, int droneId) const {
+        // Ê£ÄÊü•ÁßªÂä®Ë∑ùÁ¶ªÊòØÂê¶ÂêàÁêÜ
+        double distance = calculateMovementCost(from, to);
+        if (distance > 2.0) { // ÊúÄÂ§ßÁßªÂä®Ë∑ùÁ¶ªÈôêÂà∂
+            return false;
+        }
+        
+        return true;
+    }
 
-			nodesExplored++;
-			closedList_.push_back(currentNode);
+    bool SingleDronePlanner::isReserved(const Point3D& point, int timeStep) const {
+        SpaceTimePoint stp(point, timeStep);
+        return reservations_.find(stp) != reservations_.end();
+    }
 
-			// ºÏ≤È «∑ÒµΩ¥Ôƒø±Í
-			if (currentNode->point == drone.endPoint) {
-				std::cout << "Œﬁ»Àª˙ " << drone.id << " ’“µΩ¬∑æ∂£¨ÃΩÀ˜Ω⁄µ„ ˝: " << nodesExplored << std::endl;
+    bool SingleDronePlanner::violatesConstraints(const Point3D& point, int timeStep, int droneId,
+                                                const std::vector<Constraint>& constraints) const {
+        for (const auto& constraint : constraints) {
+            if (constraint.droneId == droneId && 
+                constraint.location == point && 
+                constraint.timeStep == timeStep) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-				// ππΩ®¬∑æ∂
-				Path path;
-				auto node = currentNode;
-				while (node != nullptr) {
-					path.push_back(node);
-					node = node->parent;
-				}
-				std::reverse(path.begin(), path.end());
-				return path;
-			}
+    double SingleDronePlanner::calculateSafetyCost(const Point3D& point, int timeStep) const {
+        // ÁÆÄÂçïÁöÑÂÆâÂÖ®‰ª£‰ª∑ËÆ°ÁÆó
+        double cost = 0.0;
+        
+        // Ê£ÄÊü•Âë®Âõ¥ÊòØÂê¶ÊúâÈ¢ÑÁ∫¶
+        auto directions = getMovementDirections(true, false);
+        for (const auto& dir : directions) {
+            Point3D checkPoint = point + dir;
+            if (isReserved(checkPoint, timeStep)) {
+                cost += g_config.weightSafety;
+            }
+        }
+        
+        return cost;
+    }
 
-			// À—À˜¡⁄æ”Ω⁄µ„
-			searchNeighbors(currentNode, drone.endPoint, drone.id);
-		}
-
-		std::cout << "Œﬁ»Àª˙ " << drone.id << " Œ¥’“µΩ¬∑æ∂£¨ÃΩÀ˜Ω⁄µ„ ˝: " << nodesExplored << std::endl;
-		return {};
-	}
-
-	bool SingleDronePlanner::isPassable(const Point3D& point) const {
-		if (!map_.isValidIndex(point.z, point.x, point.y)) {
-			return false;
-		}
-		
-		if (map_(point.z, point.x, point.y) != g_config.passableTag) {
-			return false;
-		}
-		
-		return checkSafetyDistance(point, g_config.minSafetyDistance);
-	}
-
-	bool SingleDronePlanner::isSpaceTimeFree(const Point3D& point, int timeStep) const {
-		SpaceTimePoint stp(point, timeStep);
-		return reservedSpaceTime_.find(stp) == reservedSpaceTime_.end();
-	}
-
-	
-
-	int SingleDronePlanner::calculateSafetyLevel(const Point3D& point) const {
-		int dist = g_config.preferredSafetyDistance + 1;
-
-		// ’“µΩµ±«∞µ„ƒ‹±£÷§µƒ◊Ó¥Û∞≤»´æ‡¿Î
-		for (int d = g_config.preferredSafetyDistance; d >= g_config.minSafetyDistance; d--) {
-			if (checkSafetyDistance(point, d)) {
-				dist = d;
-				break;
-			}
-		}
-
-		// ‘ΩøøΩ¸’œ∞≠ŒÔ£¨≥Õ∑£‘Ω¥Û
-		int penalty = (g_config.preferredSafetyDistance - dist + 1);
-		return penalty * penalty * penalty;
-	}
-
-	void SingleDronePlanner::searchNeighbors(NodePtr currentNode, const Point3D& target, int droneId) {
-		auto neighbors = getNeighborDirections(currentNode->point, currentNode->direction);
-
-		for (const auto& neighbor : neighbors) {
-			Point3D neighborPoint = neighbor.first;
-			Direction neighborDirection = neighbor.second;
-
-			if (!map_.isValidIndex(neighborPoint.z, neighborPoint.x, neighborPoint.y)) {
-				continue;
-			}
-
-			if (!isPassable(neighborPoint)) {
-				continue;
-			}
-
-			// ºÏ≤È ±ø’≥ÂÕª
-			int nextTimeStep = currentNode->timeStep + 1;
-			if (!isSpaceTimeFree(neighborPoint, nextTimeStep)) {
-				continue;
-			}
-
-			// ºÏ≤È «∑Ò‘⁄πÿ±’¡–±Ì÷–
-			bool inClosedList = false;
-			for (const auto& closedNode : closedList_) {
-				if (closedNode->point == neighborPoint) {
-					inClosedList = true;
-					break;
-				}
-			}
-			if (inClosedList) {
-				continue;
-			}
-
-			addNeighbor(currentNode, neighborPoint, target, nextTimeStep, neighborDirection, droneId);
-		}
-	}
-
-	void SingleDronePlanner::addNeighbor(NodePtr parent, const Point3D& point, const Point3D& target,
-		int timeStep, Direction neighborDirection, int droneId) {
-		int safetyLevel = calculateSafetyLevel(point);
-		double stepWeight = calculateStepWeight(parent->direction, neighborDirection) * g_config.weightG;
-		double newG = parent->gCost + stepWeight;
-		double safetyCost = safetyLevel * g_config.weightSafety;
-
-		auto it = visitedNodes_.find(point);
-		if (it == visitedNodes_.end()) {
-			// ¥¥Ω®–¬Ω⁄µ„
-			auto newNode = std::make_shared<Node>(point, target, droneId, timeStep, newG, neighborDirection, safetyCost);
-			newNode->parent = parent;
-			openList_.push(newNode);
-			visitedNodes_[point] = newNode;
-		}
-		else {
-			// ∏¸–¬œ÷”–Ω⁄µ„
-			auto existingNode = it->second;
-			auto tempNode = std::make_shared<Node>(point, target, droneId, timeStep, newG, neighborDirection, safetyCost);
-
-			if (tempNode->getFCost() < existingNode->getFCost()) {
-				existingNode->gCost = newG;
-				existingNode->parent = parent;
-				existingNode->safetyCost = safetyCost;
-				existingNode->direction = neighborDirection;
-				existingNode->timeStep = timeStep;
-			}
-		}
-	}
-
-	bool SingleDronePlanner::checkSafetyDistance(const Point3D& point, int safetyDistance) const {
-		for (int dx = -safetyDistance; dx <= safetyDistance; dx++) {
-			for (int dy = -safetyDistance; dy <= safetyDistance; dy++) {
-				for (int dz = -safetyDistance; dz <= safetyDistance; dz++) {
-					Point3D checkPoint(point.x + dx, point.y + dy, point.z + dz);
-
-					if (map_.isValidIndex(checkPoint.z, checkPoint.x, checkPoint.y)) {
-						if (map_(checkPoint.z, checkPoint.x, checkPoint.y) != g_config.passableTag) {
-							return false;
-						}
-					}
-				}
-			}
-		}
-		return true;
-	}
-
-	double SingleDronePlanner::calculateStepWeight(Direction prevDir, Direction currDir) const {
-		std::vector<int> horizontalDirs = { 0, 1, 2, 3, 4, 5, 6, 7 };
-
-		if (prevDir == Direction::ORIGIN) {
-			return g_config.weightStraight;
-		}
-
-		int prevVal = static_cast<int>(prevDir);
-		int currVal = static_cast<int>(currDir);
-
-		auto isHorizontal = [&](int val) {
-			return std::find(horizontalDirs.begin(), horizontalDirs.end(), val) != horizontalDirs.end();
-			};
-
-		if (isHorizontal(prevVal)) {
-			if (prevDir == currDir) {
-				return g_config.weightStraight;
-			}
-			else if (isHorizontal(currVal)) {
-				return g_config.weightHorizontal;
-			}
-			else if (currVal - prevVal == 8 || currVal - prevVal == 16) {
-				return g_config.weightVertical;
-			}
-			else {
-				return g_config.weightDiagonal;
-			}
-		}
-		else if (prevVal >= 8 && prevVal <= 15) {
-			if (prevVal - currVal == 8) {
-				return g_config.weightStraight;
-			}
-			else if (isHorizontal(currVal)) {
-				return g_config.weightHorizontal;
-			}
-			else if (prevVal == currVal) {
-				return g_config.weightVertical;
-			}
-			else {
-				return g_config.weightDiagonal;
-			}
-		}
-		else {
-			if (prevVal - currVal == 16) {
-				return g_config.weightStraight;
-			}
-			else if (isHorizontal(currVal)) {
-				return g_config.weightHorizontal;
-			}
-			else if (prevVal == currVal) {
-				return g_config.weightVertical;
-			}
-			else {
-				return g_config.weightDiagonal;
-			}
-		}
-	}
-
-	std::vector<std::pair<Point3D, Direction>> SingleDronePlanner::getNeighborDirections(const Point3D& point, Direction currentDir) const {
-		std::vector<std::pair<Point3D, Direction>> neighbors;
-
-		// ª˘¥°∑ΩœÚ∆´“∆
-		int y1 = point.y - 1, y2 = point.y + 1;
-		int x1 = point.x - 1, x2 = point.x + 1;
-		int z1 = point.z - 1, z2 = point.z + 1;
-
-		// ∏˘æ›µ±«∞∑ΩœÚ»∑∂®ø…ƒ‹µƒ¡⁄æ”
-		if (currentDir == Direction::ORIGIN) {
-			neighbors = {
-				{{point.x, y1, point.z}, Direction::S},
-				{{point.x, y2, point.z}, Direction::N},
-				{{x1, point.y, point.z}, Direction::W},
-				{{x2, point.y, point.z}, Direction::E},
-				{{x1, y1, point.z}, Direction::WS},
-				{{x1, y2, point.z}, Direction::WN},
-				{{x2, y1, point.z}, Direction::ES},
-				{{x2, y2, point.z}, Direction::EN}
-			};
-		}
-		else if (currentDir == Direction::N) {
-			neighbors = {
-				{{point.x, y2, point.z}, Direction::N},
-				{{x1, y2, point.z}, Direction::WN},
-				{{x2, y2, point.z}, Direction::EN},
-				{{point.x, y2, z2}, Direction::UN},
-				{{x1, y2, z2}, Direction::UWN},
-				{{x2, y2, z2}, Direction::UEN},
-				{{point.x, y2, z1}, Direction::DN},
-				{{x1, y2, z1}, Direction::DWN},
-				{{x2, y2, z1}, Direction::DEN}
-			};
-		}
-		else if (currentDir == Direction::S) {
-			neighbors = {
-				{{point.x, y1, point.z}, Direction::S},
-				{{x1, y1, point.z}, Direction::WS},
-				{{x2, y1, point.z}, Direction::ES},
-				{{point.x, y1, z2}, Direction::US},
-				{{x1, y1, z2}, Direction::UWS},
-				{{x2, y1, z2}, Direction::UES},
-				{{point.x, y1, z1}, Direction::DS},
-				{{x1, y1, z1}, Direction::DWS},
-				{{x2, y1, z1}, Direction::DES}
-			};
-		}
-		else if (currentDir == Direction::E) {
-			neighbors = {
-				{{x2, point.y, point.z}, Direction::E},
-				{{x2, y1, point.z}, Direction::ES},
-				{{x2, y2, point.z}, Direction::EN},
-				{{x2, point.y, z2}, Direction::UE},
-				{{x2, y1, z2}, Direction::UES},
-				{{x2, y2, z2}, Direction::UEN},
-				{{x2, point.y, z1}, Direction::DE},
-				{{x2, y1, z1}, Direction::DES},
-				{{x2, y2, z1}, Direction::DEN}
-			};
-		}
-		else if (currentDir == Direction::W) {
-			neighbors = {
-				{{x1, point.y, point.z}, Direction::W},
-				{{x1, y1, point.z}, Direction::WS},
-				{{x1, y2, point.z}, Direction::WN},
-				{{x1, point.y, z2}, Direction::UW},
-				{{x1, y1, z2}, Direction::UWS},
-				{{x1, y2, z2}, Direction::UWN},
-				{{x1, point.y, z1}, Direction::DW},
-				{{x1, y1, z1}, Direction::DWS},
-				{{x1, y2, z1}, Direction::DWN}
-			};
-		}
-		else {
-			// ∂‘”⁄∆‰À˚∏¥‘”∑ΩœÚ£¨ºÚªØ¥¶¿Ì£¨∑µªÿª˘±æµƒ8∏ˆÀÆ∆Ω∑ΩœÚ
-			neighbors = {
-				{{point.x, y1, point.z}, Direction::S},
-				{{point.x, y2, point.z}, Direction::N},
-				{{x1, point.y, point.z}, Direction::W},
-				{{x2, point.y, point.z}, Direction::E},
-				{{x1, y1, point.z}, Direction::WS},
-				{{x1, y2, point.z}, Direction::WN},
-				{{x2, y1, point.z}, Direction::ES},
-				{{x2, y2, point.z}, Direction::EN}
-			};
-		}
-
-		return neighbors;
-	}
-
-	void SingleDronePlanner::reset() {
-		while (!openList_.empty()) {
-			openList_.pop();
-		}
-		closedList_.clear();
-		visitedNodes_.clear();
-	}
+    Path SingleDronePlanner::reconstructPath(const NodePtr& goalNode) const {
+        Path path;
+        NodePtr current = goalNode;
+        
+        while (current != nullptr) {
+            path.push_back(current);
+            current = current->parent;
+        }
+        
+        std::reverse(path.begin(), path.end());
+        return path;
+    }
 
 } // namespace DronePathfinding
